@@ -35,7 +35,7 @@ var tag = flag.String("tag", "SPAMMER", "tag of txs")
 
 var addr = flag.String("addr", strings.Repeat("9", 81), "the target address of the spam")
 var msg = flag.String("msg", "", "the msg to send")
-var spamType = flag.String("type", "0value", "what type of spam to spam")
+var spamType = flag.String("type", "0value", "what type of spam to spam (0value, static or conflicting")
 var cycleLength = flag.Int("cyclelength", 3, "Length of a conflict cycle")
 var bundleSize = flag.Int("bundlesize", 1, "Minimum size of spam bundles. Might get rounded up for value spam")
 var valueSecLvl = flag.Int("value-sec-lvl", 2, "value sec level")
@@ -54,7 +54,7 @@ func main() {
 	config.BindPFlags(flag.CommandLine)
 	_, err := os.Stat(configPath)
 	if os.IsNotExist(err) {
-		fmt.Println("Warn: config.json not found. Creating new config file. ")
+		fmt.Println("Warn: config.json not found. Creating new config file.")
 		//If no seed was provided, RNG one
 		if *seed == emptySeed {
 			newSeed, err := generateSeed()
@@ -73,12 +73,13 @@ func main() {
 
 	//cfg, _ := json.MarshalIndent(config.AllSettings(), "", "  ")
 	//fmt.Printf("Settings loaded: \n %+v", string(cfg))
-	var addr = trinary.Pad(config.GetString("addr"), 81)
+	*addr = trinary.Pad(config.GetString("addr"), 81)
 	var msgTrytes string
 	msgTrytes, err = converter.ASCIIToTrytes(config.GetString("msg"))
+	must(err)
 	*msg = msgTrytes
 	*tag = config.GetString("tag")
-	*seed = config.GetString("seed")
+	*seed = trinary.Pad(config.GetString("seed"), 81)
 	*bundleSize = config.GetInt("bundlesize")
 
 	if *bundleSize <= 0 {
@@ -87,7 +88,7 @@ func main() {
 	}
 	*cycleLength = config.GetInt("cyclelength")
 
-	targetAddr, err = checksum.AddChecksum(addr, true, consts.AddressChecksumTrytesSize)
+	targetAddr, err = checksum.AddChecksum(*addr, true, consts.AddressChecksumTrytesSize)
 	must(err)
 	//Init bundleProvider
 	iotaAPI, err := api.ComposeAPI(api.HTTPClientSettings{}) //this instance must only be used for preparing the bundles

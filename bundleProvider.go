@@ -46,11 +46,16 @@ func (b *bundleProvider) Init(spamType string, apiLocal *api.API, valueSecLvl co
 }
 
 func (b *bundleProvider) init0ValueSpam(apiLocal *api.API) {
-	var spamTransfer = []bundle.Transfer{{Address: targetAddr, Tag: *tag}}
-	if len(*msg) > 0 {
-		spamTransfer[0].Message = *msgTrytes
+	trnsf := []bundle.Transfer{}
+	for i := 0; i < *bundleSize; i++ {
+		trnsf = append(trnsf, bundle.Transfer{
+			Address: targetAddr,
+			Tag:     *tag,
+			Value:   0,
+			Message: *msg,
+		})
 	}
-	var bndl, err = apiLocal.PrepareTransfers(emptySeed, spamTransfer, api.PrepareTransfersOptions{})
+	var bndl, err = apiLocal.PrepareTransfers(emptySeed, trnsf, api.PrepareTransfersOptions{})
 	if err != nil {
 		fmt.Printf("error preparing transfer: %s\n", err.Error())
 		panic(err)
@@ -96,6 +101,7 @@ func (b *bundleProvider) initStaticSpam(apiLocal *api.API, valueSecLvl consts.Se
 
 func (b *bundleProvider) initSimpleConflictingSpam(apiLocal *api.API, valueSecLvl consts.SecurityLevel) {
 	addresses := make([]string, *cycleLength)
+	fmt.Println("Addresses used for conflicting spam:")
 	for i := 0; i < *cycleLength; i++ {
 		addr, err := address.GenerateAddress(*seed, uint64(i), consts.SecurityLevel(valueSecLvl), true)
 		if err != nil {
@@ -103,8 +109,8 @@ func (b *bundleProvider) initSimpleConflictingSpam(apiLocal *api.API, valueSecLv
 			panic(err)
 		}
 		addresses[i] = addr
+		fmt.Println(addr)
 	}
-	fmt.Println("First address on seed: ", addresses[0])
 	var bndl []string
 	var err error
 	b.attachBundles = make([][]string, *cycleLength)
