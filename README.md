@@ -3,16 +3,15 @@
 An IOTA transaction spammer.
 
 Modes:
-* Spam using `getTransactionsToApprove`.
-* Spam using tips from a pool of txs filled by a ZMQ stream of txs.
+* 0 value spam (--type=0value).
+* Static value spam without changing the ledger (--type=static)
+* Conflicting spam (requires 1i; --type=conflicting)
 
 ## Installation
 
 1. Install [Go](https://golang.org/dl/)
 2. `sudo apt install build-essential`
-3. Install ZMQ according to [this](https://gist.github.com/katopz/8b766a5cb0ca96c816658e9407e83d00)
-4. Install ZMQ-dev via `sudo apt install libzmq3-dev` 
-5. Clone this repository into a folder outside of `$GOPATH`
+3. Clone this repository into a folder outside of `$GOPATH`
 
 Make sure to read the default CLI flag values below as the default values are specifically trimmed for
 a private net. In order to use the spammer on mainnet, the CLI flags have to be changed.
@@ -21,36 +20,39 @@ a private net. In order to use the spammer on mainnet, the CLI flags have to be 
 
 ### Standard
 Execute the spammer for example with `go run -tags="pow_avx" main.go`, this will let
-the spammer use `getTransactionsToApprove` with the default depth of `1` using the node located
+the spammer use `getTransactionsToApprove` using the node located
 at `http://127.0.0.1:14265`.
 
 You can switch the `-tags="pow_avx"` part to the supported PoW implementations of the
 [iota.go](https://github.com/iotaledger/iota.go) library, for example `pow_sse`, `pow_c` etc.
 
+In addition to flags, you can use the config.json file to store your config.
+Flags do take priority, if you are fine with always passing the arguments you can do that too
+If missing, the config.json file will be created upon launch and store all flags you have passed
+
+### Setting up conflicting spam
+1. If you already used static spam, change the seed in your config.json (the faucet won't send to spent addresses)
+2. Make sure the type is set to conflicting and run with --init once. This will show you the first n addresses on that seed
+3. Send exactly 1i to any of these addresses. Start the spammer without --init after this transaction
+
+Cycle length decides the amount of addresses where IOTAs are sent between 
+If you lower the value, make sure the iota is not on an address that is no longer used now
+
 ### Maximizing Throughput
-The spammer can use a pool of txs gotten from a ZMQ stream in order to maximize throughput
-(instead of using `geTransactionsToApprove` which is much slower).
-
-For example `go run -tags="pow_avx" main.go -zmq` will instruct the spammer to first try to fill
-up a pool of txs via spam txs using `getTransactionsToApprove`, until the default pool size 
-is filled (`50`) and then subsequently use that pool of txs as tips for the own
-issued spam txs. The pool of txs will be updated continuously from the ZMQ stream (while spamming is ongoing).
-
-When nodes are not responsive against `getTransactionsToApprove` calls, then `-zmq-no-tip-sel`
-should be used to instruct the spammer to simply wait for the pool of txs to be filled
-instead of trying to fill it by initially using spam txs which use `getTransactionsToApprove`.
-
-`-bc-batch-size` defines the amount of txs to retain before broadcasting them using the defined node.
-Changing this value can change the throughput quite drastically.
+The spammer runs multiple spamming threads at the same time. The amount of instances can be changed
+using the -instances command. Higher instance count can increases the TPS by better maxxing out the CPU,
+but when spamming big bundles it can lead to lazy tips. A good start might be the number of your physical cores,
+then experiment around. You can also run multiple instances at the same time.
 
 ## Flags
-* -instances, spammer instance counts; default: 5
-* -node, node to use, default: http://127.0.0.1:14265
-* -depth, depth for `getTransactionsToApprove`; default: 1
-* -mwm, mwm for pow; default: 1
-* -tag, tag of txs, default: "SPAMMER"
-* -zmq, use a zmq stream of txs as tips, default: false
-* -zmq-url, the url of the zmq stream, default: tcp://127.0.0.1:5556
-* -zmq-buf, the size of the zmq tx ring buffer; default: 50
-* -zmq-no-tip-sel, whether to not perform normal spam with tip-selection until the zmq buffer is full, default: false
-* -bc-batch-size, how many txs to batch before submitting them to the node, default: 100
+
+*--bundlesize    Filles up all bundles to at least this size. This will round up if the value is not reachable (e.g. static spam bundle size with seclvl 2 must be a factor of 3). Defaults to 1
+*--cyclelength   Specifies the number of addresses used for conflicting spam. A lower number results in more conflicts. Must be at least 2. Defaults to 3
+*--init          Setups the spammer, but does not spam
+*--mwm           Specifies the minimum weight magnitude. Use 10 for comnet and 14 for mainnet. Defaults to 1
+*--node          The node to use. Default is "localhost:14265"
+*--seed          The seed to use for conflicting and static spam. If not provided and not set in config, a random seed will be generated.
+*--type          what type of spam to spam. Can be either 0value (default), static or conflicting
+
+To see additional flags, start the program with -h
+
