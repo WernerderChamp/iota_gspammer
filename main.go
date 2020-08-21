@@ -2,20 +2,21 @@ package main
 
 import (
 	"crypto/rand"
-	"flag"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/iotaledger/iota.go/address"
+	flag "github.com/spf13/pflag"
+
 	"github.com/iotaledger/iota.go/api"
-	"github.com/iotaledger/iota.go/bundle"
 	"github.com/iotaledger/iota.go/checksum"
 	"github.com/iotaledger/iota.go/consts"
 	"github.com/iotaledger/iota.go/converter"
 	"github.com/iotaledger/iota.go/pow"
 	"github.com/iotaledger/iota.go/trinary"
+	"github.com/spf13/viper"
 	powsrvio "gitlab.com/powsrv.io/go/client"
 )
 
@@ -29,59 +30,119 @@ var instancesNum = flag.Int("instances", 10, "spammer instance counts")
 var node = flag.String("node", "http://127.0.0.1:14265", "node to use")
 var powsrvioKey = flag.String("powsrvio-key", "", "the powsrv.io key to use")
 var nodes = flag.String("nodes", "", "nodes to use")
-var depth = flag.Int("depth", 1, "depth for gtta")
-var mwm = flag.Int("mwm", 10, "mwm for pow")
+var mwm = flag.Int("mwm", 1, "mwm for pow")
 var tag = flag.String("tag", "SPAMMER", "tag of txs")
+
 var addr = flag.String("addr", strings.Repeat("9", 81), "the target address of the spam")
 var msg = flag.String("msg", "", "the msg to send")
-var valueBundles = flag.Bool("value", false, "spam value bundles")
-var valueEntries = flag.Int("value-entries", 1, "value entries")
+var spamType = flag.String("type", "0value", "what type of spam to spam")
+var cycleLength = flag.Int("cyclelength", 3, "Length of a conflict cycle")
+var bundleSize = flag.Int("bundlesize", 1, "Minimum size of spam bundles. Might get rounded up for value spam")
 var valueSecLvl = flag.Int("value-sec-lvl", 2, "value sec level")
+var seed = flag.String("seed", strings.Repeat("9", 81), "seed to use for spam")
+var msgTrytes *string
 
 var targetAddr trinary.Hash
 var emptySeed = strings.Repeat("9", 81)
 
+const configPath = "./config.json"
+
+var config = viper.New()
+
 func main() {
 	flag.Parse()
-
-	*addr = trinary.Pad(*addr, 81)
-
-	var err error
-	targetAddr, err = checksum.AddChecksum(*addr, true, consts.AddressChecksumTrytesSize)
-	must(err)
-
-	if len(*nodes) > 0 {
-		split := strings.Split(*nodes, ",")
-		for _, n := range split {
-			for i := 0; i < *instancesNum; i++ {
-				accSpammer(-1, n)
-			}
+	config.BindPFlags(flag.CommandLine)
+	_, err := os.Stat(configPath)
+	if os.IsNotExist(err) {
+		fmt.Println("Warn: config.json not found. Creating new config file. ")
+		//If no seed was provided, RNG one
+		if *seed == emptySeed {
+			newSeed, err := generateSeed()
+			must(err)
+			config.Set("seed", newSeed)
+			fmt.Println("A random seed was added to the config since no seed was provided as parameter")
 		}
+		config.SafeWriteConfigAs(configPath)
 	} else {
-		for i := 0; i < *instancesNum; i++ {
-			accSpammer(-1)
+		config.SetConfigFile(configPath)
+		err = config.ReadInConfig()
+		if err != nil {
+			fmt.Printf("Config could not be loaded from: %s (%s)\n", configPath, err)
 		}
 	}
 
+	//cfg, _ := json.MarshalIndent(config.AllSettings(), "", "  ")
+	//fmt.Printf("Settings loaded: \n %+v", string(cfg))
+	var addr = trinary.Pad(config.GetString("addr"), 81)
+	var msgTrytes string
+	msgTrytes, err = converter.ASCIIToTrytes(config.GetString("msg"))
+	*msg = msgTrytes
+	*tag = config.GetString("tag")
+	*seed = config.GetString("seed")
+	*bundleSize = config.GetInt("bundlesize")
+
+	if *bundleSize <= 0 {
+		fmt.Printf("Warn: Invalid bundle size. Assuming size 1")
+		*bundleSize = 1
+	}
+	*cycleLength = config.GetInt("cyclelength")
+
+	targetAddr, err = checksum.AddChecksum(addr, true, consts.AddressChecksumTrytesSize)
+	must(err)
+	//Init bundleProvider
+	iotaAPI, err := api.ComposeAPI(api.HTTPClientSettings{}) //this instance must only be used for preparing the bundles
+	must(err)
+	provider := bundleProvider{ready: false}
+
+	provider.Init(config.GetString("type"), iotaAPI, consts.SecurityLevel(config.GetInt("value-sec-lvl")))
+	//Startup spam threads
+	if len(config.GetString("nodes")) > 0 {
+		split := strings.Split(config.GetString("nodes"), ",")
+		for _, n := range split {
+			for i := 0; i < config.GetInt("instances"); i++ {
+				accSpammer(-1, provider, n)
+			}
+		}
+	} else {
+		for i := 0; i < config.GetInt("instances"); i++ {
+			accSpammer(-1, provider)
+		}
+	}
+	//TPS calculation
 	pad := strings.Repeat("", 10)
 	const pointsCount = 5
 	points := [pointsCount]int64{}
+	const avgPointsCount = 12
+	avgPoints := [avgPointsCount]float64{}
 	var index int
 	var tps float64
+	var avgindex int
+	var avgtps float64
 	for {
 		s := atomic.LoadInt64(&spammed)
 		points[index] = s
 		index++
-		if index == 5 {
+		if index == pointsCount {
 			index = 0
 			var deltaSum int64
 			for i := 0; i < pointsCount-1; i++ {
 				deltaSum += points[i+1] - points[i]
 			}
 			tps = float64(deltaSum) / float64(pointsCount)
+			//calculating average TPS
+			avgPoints[avgindex] = tps
+			avgindex++
+			var avgTpsSum float64
+			for i := 0; i < avgPointsCount; i++ {
+				avgTpsSum += avgPoints[i]
+			}
+			avgtps = float64(avgTpsSum) / float64(avgPointsCount)
+		}
+		if avgindex == avgPointsCount {
+			avgindex = 0
 		}
 		fmt.Printf("%s\r", pad)
-		fmt.Printf("\rspammed %d (tps %.2f)", s, tps)
+		fmt.Printf("\rspammed %d (tps %.2f ; 60s tps %.2f)    ", s, tps, avgtps)
 		<-time.After(time.Duration(1) * time.Second)
 	}
 }
@@ -90,7 +151,7 @@ const seedLength = 81
 
 var tryteAlphabetLength = byte(len(consts.TryteAlphabet))
 
-func GenerateSeed() (string, error) {
+func generateSeed() (string, error) {
 	var by [seedLength]byte
 	if _, err := rand.Read(by[:]); err != nil {
 		return "", err
@@ -102,15 +163,15 @@ func GenerateSeed() (string, error) {
 	return seed, nil
 }
 
-func accSpammer(stopAfter int, nodeToUse ...string) {
+func accSpammer(stopAfter int, provider bundleProvider, nodeToUse ...string) {
 
 	var powF pow.ProofOfWorkFunc
 
-	if len(*powsrvioKey) > 0 {
+	if len(config.GetString("powsrvioKey")) > 0 {
 
 		//powsrv.io config
 		powClient := &powsrvio.PowClient{
-			APIKey:        *powsrvioKey,
+			APIKey:        config.GetString("powsrvio-key"),
 			ReadTimeOutMs: 5000,
 			Verbose:       false,
 		}
@@ -130,70 +191,23 @@ func accSpammer(stopAfter int, nodeToUse ...string) {
 	if len(nodeToUse) > 0 {
 		n = nodeToUse[0]
 	} else {
-		n = *node
+		n = config.GetString("node")
 	}
 
 	iotaAPI, err := api.ComposeAPI(api.HTTPClientSettings{URI: n, LocalProofOfWorkFunc: powF})
 	must(err)
 
-	spamTransfer := []bundle.Transfer{{Address: targetAddr, Tag: *tag}}
-	if len(*msg) > 0 {
-		msgTrytes, err := converter.ASCIIToTrytes(*msg)
-		must(err)
-		spamTransfer[0].Message = msgTrytes
-	}
-
-	var bndl []trinary.Trytes
-	if *valueBundles {
-		seed, err := GenerateSeed()
-		if err != nil {
-			panic(err)
-		}
-
-		trnsf := []bundle.Transfer{}
-		inputs := []api.Input{}
-		for i := 0; i < *valueEntries; i++ {
-			addr, err := address.GenerateAddress(seed, uint64(i), consts.SecurityLevel(*valueSecLvl), true)
-			if err != nil {
-				fmt.Printf("error creating address: %s\n", err.Error())
-				panic(err)
-			}
-			trnsf = append(trnsf, bundle.Transfer{
-				Address: addr,
-				Tag:     *tag,
-				Value:   100000000,
-			})
-			inputs = append(inputs, api.Input{
-				Address:  addr,
-				KeyIndex: uint64(i),
-				Security: consts.SecurityLevel(*valueSecLvl),
-				Balance:  100000000,
-			})
-		}
-
-		bndl, err = PrepareTransfers(iotaAPI, seed, trnsf, api.PrepareTransfersOptions{Inputs: inputs})
-		if err != nil {
-			fmt.Printf("error preparing transfer: %s\n", err.Error())
-			panic(err)
-		}
-	} else {
-		bndl, err = iotaAPI.PrepareTransfers(emptySeed, spamTransfer, api.PrepareTransfersOptions{})
-		if err != nil {
-			fmt.Printf("error preparing transfer: %s\n", err.Error())
-			panic(err)
-		}
-	}
-
 	go func() {
+		var bndl []trinary.Trytes
 		for {
 
-			tips, err := iotaAPI.GetTransactionsToApprove(uint64(*depth))
+			tips, err := iotaAPI.GetTransactionsToApprove(uint64(config.GetInt("depth")))
 			if err != nil {
 				fmt.Printf("error sending: %s\n", err.Error())
 				continue
 			}
-
-			powedBndl, err := iotaAPI.AttachToTangle(tips.TrunkTransaction, tips.BranchTransaction, uint64(*mwm), bndl)
+			bndl = provider.getNextBundle()
+			powedBndl, err := iotaAPI.AttachToTangle(tips.TrunkTransaction, tips.BranchTransaction, uint64(config.GetInt("mwm")), bndl)
 			if err != nil {
 				fmt.Printf("error doing PoW: %s\n", err.Error())
 				continue
@@ -210,7 +224,7 @@ func accSpammer(stopAfter int, nodeToUse ...string) {
 					break
 				}
 			} else {
-				atomic.AddInt64(&spammed, 1)
+				atomic.AddInt64(&spammed, int64(len(powedBndl)))
 			}
 		}
 	}()
