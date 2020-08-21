@@ -36,10 +36,11 @@ var tag = flag.String("tag", "SPAMMER", "tag of txs")
 var addr = flag.String("addr", strings.Repeat("9", 81), "the target address of the spam")
 var msg = flag.String("msg", "", "the msg to send")
 var spamType = flag.String("type", "0value", "what type of spam to spam (0value, static or conflicting")
-var cycleLength = flag.Int("cyclelength", 3, "Length of a conflict cycle")
-var bundleSize = flag.Int("bundlesize", 1, "Minimum size of spam bundles. Might get rounded up for value spam")
+var cycleLength = flag.Int("cyclelength", 3, "length of a conflict cycle")
+var bundleSize = flag.Int("bundlesize", 1, "minimum size of spam bundles. Might get rounded up for value spam")
 var valueSecLvl = flag.Int("value-sec-lvl", 2, "value sec level")
 var seed = flag.String("seed", strings.Repeat("9", 81), "seed to use for spam")
+var doinit = flag.Bool("init", false, "if this flag is passed, the spammer setups but does not spam")
 var msgTrytes *string
 
 var targetAddr trinary.Hash
@@ -51,10 +52,13 @@ var config = viper.New()
 
 func main() {
 	flag.Parse()
+	dryrun := *doinit
 	config.BindPFlags(flag.CommandLine)
 	_, err := os.Stat(configPath)
 	if os.IsNotExist(err) {
 		fmt.Println("Warn: config.json not found. Creating new config file.")
+		//we don't want this to be true in the config
+		*doinit = false
 		//If no seed was provided, RNG one
 		if *seed == emptySeed {
 			newSeed, err := generateSeed()
@@ -74,9 +78,11 @@ func main() {
 	//cfg, _ := json.MarshalIndent(config.AllSettings(), "", "  ")
 	//fmt.Printf("Settings loaded: \n %+v", string(cfg))
 	*addr = trinary.Pad(config.GetString("addr"), 81)
-	var msgTrytes string
-	msgTrytes, err = converter.ASCIIToTrytes(config.GetString("msg"))
-	must(err)
+	msgTrytes := ""
+	if len(config.GetString("msg")) > 0 {
+		msgTrytes, err = converter.ASCIIToTrytes(config.GetString("msg"))
+		must(err)
+	}
 	*msg = msgTrytes
 	*tag = config.GetString("tag")
 	*seed = trinary.Pad(config.GetString("seed"), 81)
@@ -96,6 +102,12 @@ func main() {
 	provider := bundleProvider{ready: false}
 
 	provider.Init(config.GetString("type"), iotaAPI, consts.SecurityLevel(config.GetInt("value-sec-lvl")))
+
+	//if we just wanted to initialize (e.g. check addresses) we can quit right here
+	if dryrun {
+		fmt.Println("spammer ran with --init, done")
+		return
+	}
 	//Startup spam threads
 	if len(config.GetString("nodes")) > 0 {
 		split := strings.Split(config.GetString("nodes"), ",")
