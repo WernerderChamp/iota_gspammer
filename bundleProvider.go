@@ -24,7 +24,7 @@ type bundleProvider struct {
 
 func (b *bundleProvider) getNextBundle() []string {
 	if !b.ready {
-		panic("Asked for next bundle before ready")
+		panic("Asked for bundle before ready")
 	}
 	return b.attachBundles[rand.Intn(len(b.attachBundles))]
 }
@@ -47,12 +47,12 @@ func (b *bundleProvider) Init(spamType string, apiLocal *api.API, valueSecLvl co
 
 func (b *bundleProvider) init0ValueSpam(apiLocal *api.API) {
 	trnsf := []bundle.Transfer{}
-	for i := 0; i < *bundleSize; i++ {
+	for i := 0; i < bSize; i++ {
 		trnsf = append(trnsf, bundle.Transfer{
-			Address: targetAddr,
-			Tag:     *tag,
+			Address: addrTrytes,
+			Tag:     tagTrytes,
 			Value:   0,
-			Message: *msg,
+			Message: msgTrytes,
 		})
 	}
 	var bndl, err = apiLocal.PrepareTransfers(emptySeed, trnsf, api.PrepareTransfersOptions{})
@@ -68,21 +68,21 @@ func (b *bundleProvider) initStaticSpam(apiLocal *api.API, valueSecLvl consts.Se
 	trnsf := []bundle.Transfer{}
 	inputs := []api.Input{}
 	//add transfers until the minimum size is exceeded
-	spendcount := int(math.Ceil(float64(*bundleSize) / (float64(valueSecLvl) + 1)))
+	spendcount := int(math.Ceil(float64(bSize) / (float64(valueSecLvl) + 1)))
 	for i := 0; i < spendcount; i++ {
-		addr, err := address.GenerateAddress(*seed, uint64(i), consts.SecurityLevel(valueSecLvl), true)
+		localAddr, err := address.GenerateAddress(seedTrytes, uint64(i), consts.SecurityLevel(valueSecLvl), true)
 		if err != nil {
 			fmt.Printf("error creating address: %s\n", err.Error())
 			panic(err)
 		}
 		trnsf = append(trnsf, bundle.Transfer{
-			Address: addr,
-			Tag:     *tag,
+			Address: localAddr,
+			Tag:     tagTrytes,
 			Value:   142650000,
-			Message: *msg,
+			Message: msgTrytes,
 		})
 		inputs = append(inputs, api.Input{
-			Address:  addr,
+			Address:  localAddr,
 			KeyIndex: uint64(i),
 			Security: consts.SecurityLevel(valueSecLvl),
 			Balance:  142650000,
@@ -90,7 +90,7 @@ func (b *bundleProvider) initStaticSpam(apiLocal *api.API, valueSecLvl consts.Se
 	}
 	var bndl []string
 	var err error
-	bndl, err = prepareTransfers(apiLocal, *seed, trnsf, api.PrepareTransfersOptions{Inputs: inputs})
+	bndl, err = prepareTransfers(apiLocal, seedTrytes, trnsf, api.PrepareTransfersOptions{Inputs: inputs})
 	if err != nil {
 		fmt.Printf("error preparing transfer: %s\n", err.Error())
 		panic(err)
@@ -100,54 +100,54 @@ func (b *bundleProvider) initStaticSpam(apiLocal *api.API, valueSecLvl consts.Se
 }
 
 func (b *bundleProvider) initSimpleConflictingSpam(apiLocal *api.API, valueSecLvl consts.SecurityLevel) {
-	addresses := make([]string, *cycleLength)
+	localAddresses := make([]string, conflictBundleCount)
 	fmt.Println("Addresses used for conflicting spam:")
-	for i := 0; i < *cycleLength; i++ {
-		addr, err := address.GenerateAddress(*seed, uint64(i), consts.SecurityLevel(valueSecLvl), true)
+	for i := 0; i < conflictBundleCount; i++ {
+		addr, err := address.GenerateAddress(seedTrytes, uint64(i), consts.SecurityLevel(valueSecLvl), true)
 		if err != nil {
 			fmt.Printf("error creating address: %s\n", err.Error())
 			panic(err)
 		}
-		addresses[i] = addr
+		localAddresses[i] = addr
 		fmt.Println(addr)
 	}
 	var bndl []string
 	var err error
-	b.attachBundles = make([][]string, *cycleLength)
-	for i := 0; i < *cycleLength; i++ {
+	b.attachBundles = make([][]string, conflictBundleCount)
+	for i := 0; i < conflictBundleCount; i++ {
 		trnsf := []bundle.Transfer{}
 		inputs := []api.Input{}
 		//send iota to the next address, last one sends to first one
-		if i == *cycleLength-1 {
+		if i == conflictBundleCount-1 {
 			trnsf = append(trnsf, bundle.Transfer{
-				Address: addresses[0],
-				Tag:     *tag,
+				Address: localAddresses[0],
+				Tag:     tagTrytes,
 				Value:   1,
-				Message: *msg,
+				Message: msgTrytes,
 			})
 		} else {
 			trnsf = append(trnsf, bundle.Transfer{
-				Address: addresses[i+1],
-				Tag:     *tag,
-				Message: *msg,
+				Address: localAddresses[i+1],
+				Tag:     tagTrytes,
 				Value:   1,
+				Message: msgTrytes,
 			})
 		}
 		inputs = append(inputs, api.Input{
-			Address:  addresses[i],
+			Address:  localAddresses[i],
 			KeyIndex: uint64(i),
 			Security: consts.SecurityLevel(valueSecLvl),
 			Balance:  1,
 		})
 		//pad bundle, so it has the minimum size
-		for j := int(valueSecLvl) + 1; j < *bundleSize; j++ {
+		for j := int(valueSecLvl) + 1; j < bSize; j++ {
 			trnsf = append(trnsf, bundle.Transfer{
-				Address: targetAddr,
-				Tag:     *tag,
+				Address: addrTrytes,
+				Tag:     tagTrytes,
 				Value:   0,
 			})
 		}
-		bndl, err = prepareTransfers(apiLocal, *seed, trnsf, api.PrepareTransfersOptions{Inputs: inputs})
+		bndl, err = prepareTransfers(apiLocal, seedTrytes, trnsf, api.PrepareTransfersOptions{Inputs: inputs})
 		if err != nil {
 			fmt.Printf("error preparing transfer: %s\n", err.Error())
 			panic(err)

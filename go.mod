@@ -1,4 +1,6 @@
-module github.com/luca-moser/iota.go.test
+module github.com/wernerderchamp/iota-spammer
+
+go 1.15
 
 require (
 	github.com/OneOfOne/xxhash v1.2.5 // indirect
@@ -18,4 +20,3 @@ require (
 	//gopkg.in/yaml.v2 v2.2.2 // indirect
 )
 
-go 1.13

@@ -41,9 +41,11 @@ var bundleSize = flag.Int("bundlesize", 1, "minimum size of spam bundles. Might 
 var valueSecLvl = flag.Int("value-sec-lvl", 2, "value sec level")
 var seed = flag.String("seed", strings.Repeat("9", 81), "seed to use for spam")
 var doinit = flag.Bool("init", false, "if this flag is passed, the spammer setups but does not spam")
-var msgTrytes *string
 
-var targetAddr trinary.Hash
+var msgTrytes, tagTrytes, seedTrytes string
+var conflictBundleCount, bSize int
+var addrTrytes trinary.Hash
+
 var emptySeed = strings.Repeat("9", 81)
 
 const configPath = "./config.json"
@@ -77,24 +79,26 @@ func main() {
 
 	//cfg, _ := json.MarshalIndent(config.AllSettings(), "", "  ")
 	//fmt.Printf("Settings loaded: \n %+v", string(cfg))
-	*addr = trinary.Pad(config.GetString("addr"), 81)
-	msgTrytes := ""
+	msgTrytes = ""
 	if len(config.GetString("msg")) > 0 {
 		msgTrytes, err = converter.ASCIIToTrytes(config.GetString("msg"))
 		must(err)
 	}
-	*msg = msgTrytes
-	*tag = config.GetString("tag")
-	*seed = trinary.Pad(config.GetString("seed"), 81)
-	*bundleSize = config.GetInt("bundlesize")
+	tagTrytes = config.GetString("tag")
+	seedTrytes = trinary.Pad(config.GetString("seed"), 81)
+	bSize = config.GetInt("bundlesize")
 
-	if *bundleSize <= 0 {
+	if bSize <= 0 {
 		fmt.Printf("Warn: Invalid bundle size. Assuming size 1")
-		*bundleSize = 1
+		bSize = 1
 	}
-	*cycleLength = config.GetInt("cyclelength")
+	conflictBundleCount = config.GetInt("cyclelength")
+	if conflictBundleCount <= 1 {
+		fmt.Printf("Warn: Spam cycle length must be at least 2. Value was set to 2")
+		conflictBundleCount = 2
+	}
 
-	targetAddr, err = checksum.AddChecksum(*addr, true, consts.AddressChecksumTrytesSize)
+	addrTrytes, err = checksum.AddChecksum(trinary.Pad(config.GetString("addr"), 81), true, consts.AddressChecksumTrytesSize)
 	must(err)
 	//Init bundleProvider
 	iotaAPI, err := api.ComposeAPI(api.HTTPClientSettings{}) //this instance must only be used for preparing the bundles
@@ -155,7 +159,7 @@ func main() {
 			avgindex = 0
 		}
 		fmt.Printf("%s\r", pad)
-		fmt.Printf("\rspammed %d (tps %.2f ; 60s tps %.2f)    ", s, tps, avgtps)
+		fmt.Printf("\rspammed %d transactions (current tps %.2f ; 60s tps %.2f)    ", s, tps, avgtps)
 		<-time.After(time.Duration(1) * time.Second)
 	}
 }

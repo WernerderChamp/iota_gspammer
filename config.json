@@ -1,0 +1,16 @@
+{
+  "addr": "999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+  "bundlesize": 1,
+  "cyclelength": 3,
+  "init": false,
+  "instances": 10,
+  "msg": "",
+  "mwm": 1,
+  "node": "http://127.0.0.1:14265",
+  "nodes": "",
+  "powsrvio-key": "",
+  "seed": "KDUVYJWGWYYLRCQGXEIABLDYNPOTZXXQITKFJL9Z9KUADRTYZXANJSWUQOYSIEDPHYL9HYQZY9QGRSQFH",
+  "tag": "SPAMMER",
+  "type": "0value",
+  "value-sec-lvl": 2
+}
