@@ -14,7 +14,7 @@ import (
 //TODO: Read this stuff from a config file and don't hardcode it
 const url = "http://localhost:14265"
 const threadCount = 6
-const powScore = 2000
+const powScore = 4000
 const indexationStr = "GOSPAM"
 const messageStr = "This is a spam message sent via the Go spammer"
 const networkIDStr = "testnet6"
