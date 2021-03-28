@@ -1,3 +1,5 @@
+This readme is currently outdated, and will be updated as I add more features
+
 # Spammer
 
 An IOTA transaction spammer.
